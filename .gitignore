@@ -1,2 +1,13 @@
 .venv
 *.gguf
+
+node_modules
+**/node_modules
+.idea/workspace.xml
+.idea/libraries
+.DS_Store
+.env.local
+.sql
+go-server
+
+venv/
