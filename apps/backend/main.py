@@ -7,10 +7,10 @@ import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
 import time
+import re
 
 # GLOBAL VARIABLES
 zephyr_model_path = "./zephyr-model.gguf"
-# deepseek_model_path = "./deepseek-model.gguf"
 START_TIME = time.time()
 
 app = FastAPI()
@@ -23,112 +23,93 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize model without specifying a chat format
+# We'll handle the formatting ourselves
 zephyr_llm = Llama(
-                    model_path=zephyr_model_path,
-                    chat_format="llama-2",
-                    n_ctx=4096,
-                    n_threads=8,
+    model_path=zephyr_model_path,
+    n_ctx=4096,
+    n_threads=8,
+    # No chat_format specified - we'll convert messages manually
 )
 
 class ChatRequest(BaseModel):
     messages: List[Dict[str, str]]
-    stream: bool = False 
+    stream: bool = False
+    max_tokens: int = 2048
+
+def convert_to_chatml(messages: List[Dict[str, str]]) -> str:
+    """
+    Convert messages from the OpenAI/Llama-2 format to ChatML format for Zephyr 7B.
+    """
+    chatml_prompt = ""
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"]
+
+        if role == "system":
+            chatml_prompt += f"<|system|>\n{content}\n</s>\n"
+        elif role == "user":
+            chatml_prompt += f"<|user|>\n{content}\n</s>\n"
+        elif role == "assistant":
+            chatml_prompt += f"<|assistant|>\n{content}\n</s>\n"
+
+    # Add the assistant tag at the end to prompt the model to generate
+    if not chatml_prompt.endswith("<|assistant|>\n"):
+        chatml_prompt += "<|assistant|>\n"
+
+    return chatml_prompt
+
+def clean_response_text(text: str) -> str:
+    """Remove any ChatML formatting tokens that might be in the response."""
+    # Use regex to remove formatting tokens that might appear
+    pattern = r'<\|assistant\|>|<\|user\|>|<\|system\|>|</s>|\[/INST\]|\[/ASSIST\]|<<USER>>|<<ASSISTANT>>'
+    clean_text = re.sub(pattern, '', text)
+    return clean_text.strip()
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    response = zephyr_llm.create_chat_completion(
-        messages=request.messages,
-        stream=request.stream
-    )
+    # Convert messages to ChatML format
+    chatml_prompt = convert_to_chatml(request.messages)
 
+    # Use completion API instead of chat completion
     if request.stream:
-        return StreamingResponse(stream_generator(response), media_type="text/event-stream")
+        response = zephyr_llm.create_completion(
+            prompt=chatml_prompt,
+            max_tokens=request.max_tokens,
+            stream=True,
+            stop=["</s>", "<|user|>"]  # Stop generation at these tokens
+        )
+        return StreamingResponse(stream_chatml_generator(response), media_type="text/event-stream")
     else:
-        return {"response": response["choices"][0]["message"]["content"]}
+        response = zephyr_llm.create_completion(
+            prompt=chatml_prompt,
+            max_tokens=request.max_tokens,
+            stream=False,
+            stop=["</s>", "<|user|>"]  # Stop generation at these tokens
+        )
+        generated_text = response["choices"][0]["text"]
+        clean_text = clean_response_text(generated_text)
 
-async def stream_generator(response):
+        # Return in a format compatible with your existing code
+        return {
+            "response": clean_text,
+            "choices": [{"message": {"content": clean_text, "role": "assistant"}}]
+        }
+
+async def stream_chatml_generator(response):
     for chunk in response:
         if "choices" in chunk and len(chunk["choices"]) > 0:
             choice = chunk["choices"][0]
-            if "delta" in choice and "content" in choice["delta"]:
-                content = choice["delta"]["content"]
+            if "text" in choice:
+                content = choice["text"]
                 if content:
-                    yield f"data: {content}\n\n"
-            elif "message" in choice and "content" in choice["message"]:
-                content = choice["message"]["content"]
-                if content:
-                    yield f"data: {content}\n\n"
+                    # Clean the chunk content before sending
+                    clean_content = clean_response_text(content)
+                    if clean_content:
+                        yield f"data: {clean_content}\n\n"
     yield "data: [DONE]\n\n"
 
-@app.get("/metrics")
-async def get_metrics():
-    """
-    Endpoint that provides system metrics in Prometheus format
-    """
-    # Get metrics
-    cpu_percent = psutil.cpu_percent(interval=1)
-    cpu_count = psutil.cpu_count()
-    memory = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
-    uptime_seconds = time.time() - START_TIME
-    process = psutil.Process()
-    process_memory = process.memory_info()
-    
-    # Format metrics in Prometheus format
-    metrics = []
-    
-    # Add HELP and TYPE comments for each metric
-    metrics.append("# HELP system_cpu_utilization CPU utilization percentage")
-    metrics.append("# TYPE system_cpu_utilization gauge")
-    metrics.append(f"system_cpu_utilization {cpu_percent}")
-    
-    metrics.append("# HELP system_cpu_count Number of CPU cores")
-    metrics.append("# TYPE system_cpu_count gauge")
-    metrics.append(f"system_cpu_count {cpu_count}")
-    
-    metrics.append("# HELP system_memory_total_bytes Total memory in bytes")
-    metrics.append("# TYPE system_memory_total_bytes gauge")
-    metrics.append(f"system_memory_total_bytes {memory.total}")
-    
-    metrics.append("# HELP system_memory_available_bytes Available memory in bytes")
-    metrics.append("# TYPE system_memory_available_bytes gauge")
-    metrics.append(f"system_memory_available_bytes {memory.available}")
-    
-    metrics.append("# HELP system_memory_used_bytes Used memory in bytes")
-    metrics.append("# TYPE system_memory_used_bytes gauge")
-    metrics.append(f"system_memory_used_bytes {memory.used}")
-    
-    metrics.append("# HELP system_memory_percent Percentage of memory used")
-    metrics.append("# TYPE system_memory_percent gauge")
-    metrics.append(f"system_memory_percent {memory.percent}")
-    
-    metrics.append("# HELP system_disk_total_bytes Total disk space in bytes")
-    metrics.append("# TYPE system_disk_total_bytes gauge")
-    metrics.append(f"system_disk_total_bytes {disk.total}")
-    
-    metrics.append("# HELP system_disk_used_bytes Used disk space in bytes")
-    metrics.append("# TYPE system_disk_used_bytes gauge")
-    metrics.append(f"system_disk_used_bytes {disk.used}")
-    
-    metrics.append("# HELP system_disk_free_bytes Free disk space in bytes")
-    metrics.append("# TYPE system_disk_free_bytes gauge")
-    metrics.append(f"system_disk_free_bytes {disk.free}")
-    
-    metrics.append("# HELP system_disk_percent Percentage of disk used")
-    metrics.append("# TYPE system_disk_percent gauge")
-    metrics.append(f"system_disk_percent {disk.percent}")
-    
-    metrics.append("# HELP app_uptime_seconds Time since application started in seconds")
-    metrics.append("# TYPE app_uptime_seconds counter")
-    metrics.append(f"app_uptime_seconds {uptime_seconds}")
-    
-    metrics.append("# HELP app_memory_usage_bytes Memory usage of this application in bytes")
-    metrics.append("# TYPE app_memory_usage_bytes gauge")
-    metrics.append(f"app_memory_usage_bytes {process_memory.rss}")
-    
-    metrics.append("# HELP app_cpu_percent CPU usage percentage of this application")
-    metrics.append("# TYPE app_cpu_percent gauge")
-    metrics.append(f"app_cpu_percent {process.cpu_percent(interval=0.1)}")
-
-    # Return the metrics as plain text
-    return PlainTextResponse("\n".join(metrics))
+@app.get("/")
+async def root():
+    return {"message": "Zephyr API is running"}
