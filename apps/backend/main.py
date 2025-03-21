@@ -60,12 +60,6 @@ def convert_to_chatml(messages: List[Dict[str, str]]) -> str:
 
     return chatml_prompt
 
-def clean_response_text(text: str) -> str:
-    """Remove any ChatML formatting tokens that might be in the response."""
-    # Use regex to remove formatting tokens that might appear
-    pattern = r'<\|assistant\|>|<\|user\|>|<\|system\|>|</s>|\[/INST\]|\[/ASSIST\]|<<USER>>|<<ASSISTANT>>'
-    clean_text = re.sub(pattern, '', text)
-    return clean_text.strip()
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -89,12 +83,11 @@ async def chat(request: ChatRequest):
             stop=["</s>", "<|user|>"]  # Stop generation at these tokens
         )
         generated_text = response["choices"][0]["text"]
-        clean_text = clean_response_text(generated_text)
 
         # Return in a format compatible with your existing code
         return {
-            "response": clean_text,
-            "choices": [{"message": {"content": clean_text, "role": "assistant"}}]
+            "response": generated_text,
+            "choices": [{"message": {"content": generated_text, "role": "assistant"}}]
         }
 
 async def stream_chatml_generator(response):
@@ -105,9 +98,8 @@ async def stream_chatml_generator(response):
                 content = choice["text"]
                 if content:
                     # Clean the chunk content before sending
-                    clean_content = clean_response_text(content)
-                    if clean_content:
-                        yield f"data: {clean_content}\n\n"
+                    if content:
+                        yield f"data: {content}\n\n"
     yield "data: [DONE]\n\n"
 
 @app.get("/")
