@@ -7,8 +7,7 @@ import asyncio
 
 # GLOBAL VARIABLES
 zephyr_model_path = "./zephyr-model.gguf"
-deepseek_model_path = "./deepseek-model.gguf"
-CONTEXT_SIZE = 512
+# deepseek_model_path = "./deepseek-model.gguf"
 
 app = FastAPI()
 
@@ -20,8 +19,8 @@ zephyr_llm = Llama(
 )
 
 class ChatRequest(BaseModel):
-    messages: List[Dict[str, str]]  # Expecting OpenAI-style message format
-    stream: bool = False  # Option to enable streaming
+    messages: List[Dict[str, str]]
+    stream: bool = False 
 
 @app.post("/chat")
 async def chat(request: ChatRequest):

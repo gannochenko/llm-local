@@ -83,12 +83,7 @@ export function useAIStream() {
                   continue;
                 }
 
-                const parsed = JSON.parse(data);
-                if (parsed.choices && parsed.choices[0]?.delta?.content) {
-                  setStreamedContent(
-                    (prev) => prev + parsed.choices[0].delta.content
-                  );
-                }
+                setStreamedContent((prev) => prev + data);
               } catch (e) {
                 console.error("Error parsing SSE data:", e);
               }
