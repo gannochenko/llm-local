@@ -88,6 +88,13 @@ const ChatComponent = () => {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !isStreaming && input.trim()) {
+              e.preventDefault();
+              // Assuming you have a function like handleSendMessage() to send the message
+              handleSendMessage();
+            }
+          }}
           placeholder="Type your message..."
           disabled={isStreaming}
           style={{ flexGrow: 1, marginRight: 10 }}
