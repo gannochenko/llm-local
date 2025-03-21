@@ -4,12 +4,21 @@ from pydantic import BaseModel
 from typing import List, Dict, AsyncGenerator
 from fastapi.responses import StreamingResponse
 import asyncio
+from fastapi.middleware.cors import CORSMiddleware  # Add this import
 
 # GLOBAL VARIABLES
 zephyr_model_path = "./zephyr-model.gguf"
 # deepseek_model_path = "./deepseek-model.gguf"
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 zephyr_llm = Llama(
                     model_path=zephyr_model_path,
