@@ -23,13 +23,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize model without specifying a chat format
-# We'll handle the formatting ourselves
 zephyr_llm = Llama(
     model_path=zephyr_model_path,
     n_ctx=4096,
     n_threads=8,
-    # No chat_format specified - we'll convert messages manually
 )
 
 class ChatRequest(BaseModel):
@@ -63,10 +60,8 @@ def convert_to_chatml(messages: List[Dict[str, str]]) -> str:
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    # Convert messages to ChatML format
     chatml_prompt = convert_to_chatml(request.messages)
 
-    # Use completion API instead of chat completion
     if request.stream:
         response = zephyr_llm.create_completion(
             prompt=chatml_prompt,

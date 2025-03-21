@@ -10,6 +10,9 @@ install: ## Install external dependencies and resources.
 	@$(MAKE) -C ./apps/ui/ install
 	@$(MAKE) -C ./apps/backend/ install
 
+run_local_infra: ## Run the infrastructure locally
+	@docker compose up
+
 run: ## Run an application
 ifeq ($(app),)
 	$(error Please specify the "app" parameter. Example: "make run app=service")
